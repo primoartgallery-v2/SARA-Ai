@@ -1,0 +1,19 @@
+# Dependencies
+node_modules/
+
+# Cloudflare Wrangler local state & SQLite DBs
+.wrangler/
+
+# Local environment & secret variables
+.dev.vars
+.dev.vars.*
+.env
+.env.*
+
+# Logs, scratch & temporary test files
+*.log
+scratch/
+.system_generated/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*

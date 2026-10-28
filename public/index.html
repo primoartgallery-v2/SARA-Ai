@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>SARA AI</title>
+<link rel="icon" type="image/png" href="/icons/favicon.png">
+<link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
+<link rel="manifest" href="/manifest.json">
+<meta name="theme-color" content="#0a0a0f">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="SARA AI">
+<link rel="stylesheet" href="/static/styles.css">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/marked/12.0.0/marked.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/dompurify/3.0.9/purify.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+</head>
+<body>
+<div id="auth" class="auth"><div class="auth-box">
+<div class="logo">🤖</div><h1>SARA AI</h1>
+<div class="tabs"><button class="tab active" data-t="login">Login</button><button class="tab" data-t="signup">Sign Up</button></div>
+<form id="login-f" class="form active"><input type="email" id="l-email" placeholder="Email" required><input type="password" id="l-pass" placeholder="Password" required><button type="submit" class="btn">Login</button></form>
+<form id="signup-f" class="form"><input type="text" id="s-name" placeholder="Name" required><input type="email" id="s-email" placeholder="Email" required><input type="password" id="s-pass" placeholder="Password (6+)" required><button type="submit" class="btn">Sign Up</button></form>
+<div id="auth-err" class="err"></div>
+</div></div>
+<div id="app" class="app hidden">
+<aside id="sidebar" class="sidebar">
+<div class="sb-top"><button id="new-chat" class="btn-new">+ New Chat</button><button id="sb-close" class="btn-i" aria-label="Close sidebar" title="Close Sidebar">✕</button></div>
+<div class="sb-search"><input type="text" id="chat-search" placeholder="🔍 Search chats..."></div>
+<div id="chat-list" class="chat-list"></div>
+<div class="sb-bot"><button id="settings-btn" class="btn-f">⚙ Settings</button><button id="logout" class="btn-f">Logout</button></div>
+</aside>
+<main class="main">
+<header class="hdr"><button id="sb-open" class="btn-i" aria-label="Open sidebar" title="Open Sidebar">☰</button><h2 id="chat-title">New Chat</h2><div class="hdr-r"><button id="model-btn" class="btn-m smart" title="Switch AI Mode: Smart / Deep Think / Fast" aria-label="Switch AI Mode">💡 Smart</button><button id="clear-btn" class="btn-i" title="Clear Chat Messages" aria-label="Clear chat messages">🗑️</button><button id="export-btn" class="btn-i" title="Export Chat" aria-label="Export chat">📥</button></div></header>
+<div id="conn-banner" class="conn-banner hidden" role="status" aria-live="polite"></div>
+<div id="msgs" class="msgs"></div>
+<div class="input-area">
+<div id="file-preview" class="file-preview hidden"></div>
+<div class="input-box">
+<button id="attach-btn" class="btn-tool" title="Upload Document / Code File" aria-label="Upload document or code file">📎</button>
+<input type="file" id="file-input" style="display:none" multiple accept=".txt,.md,.json,.csv,.py,.js,.ts,.html,.css,.xml,.pdf,.log,.c,.cpp,.java">
+<button id="img-gen-btn" class="btn-tool" title="AI Image Generation" aria-label="AI image generation">🎨</button>
+<button id="web-btn" class="btn-tool" title="Live Web Search (Search Internet)" aria-label="Toggle web search">🌐</button>
+<textarea id="input" placeholder="Type your message, or /image, /web..." rows="1" aria-label="Chat message input"></textarea>
+<button id="mic-btn" class="btn-tool" title="Voice Input (Speech-to-Text)" aria-label="Voice input">🎙️</button>
+<button id="send" class="btn-send" title="Send Message" aria-label="Send message">➤</button>
+<button id="stop" class="btn-stop hidden" title="Stop Generation" aria-label="Stop generation">⬛</button>
+</div>
+</div>
+</main>
+</div>
+<div id="settings" class="modal hidden"><div class="modal-box">
+<div class="modal-hdr"><h2>Settings</h2><button id="set-close" class="btn-i" aria-label="Close settings" title="Close Settings">✕</button></div>
+<div class="modal-body">
+<div class="sg"><label>Theme</label><div class="opts" id="theme-opts"><button type="button" class="opt active" data-theme="dark">Dark</button><button type="button" class="opt" data-theme="light">Light</button></div></div>
+<div class="sg"><label>Color</label><div class="colors"><button class="clr active" style="background:#6366f1" data-c="#6366f1"></button><button class="clr" style="background:#ec4899" data-c="#ec4899"></button><button class="clr" style="background:#10b981" data-c="#10b981"></button><button class="clr" style="background:#f59e0b" data-c="#f59e0b"></button><button class="clr" style="background:#8b5cf6" data-c="#8b5cf6"></button></div></div>
+<div class="sg"><label>Font Size</label><select id="font-sel"><option value="small">Small</option><option value="medium" selected>Medium</option><option value="large">Large</option></select></div>
+<div class="sg"><label>Language</label><select id="lang-sel"><option value="auto" selected>Auto (Same as your message)</option><option value="hinglish">Hinglish (Hindi in English letters)</option><option value="hindi">Hindi (हिन्दी)</option><option value="bengali">Bengali (বাংলা)</option><option value="english">English</option></select></div>
+<div class="sg"><label>AI Personality Mode</label><div class="opts" id="personality-opts"><button type="button" class="opt active" data-mode="normal" aria-pressed="true">Default</button><button type="button" class="opt" data-mode="romantic" aria-pressed="false">Romantic Mode ❤️</button></div><p class="sg-hint">Romantic Mode makes SARA more affectionate, playful and sweet.</p></div>
+<div class="sg"><label>System Prompt (AI Personality)</label><textarea id="sys-prompt" rows="3" placeholder="Define your AI personality..."></textarea></div>
+<div class="sg"><label>🧠 Long-Term Memory (Persistent Facts)</label><p class="sg-hint">SARA automatically remembers facts across your chats. Manage or add facts below:</p><div id="memories-list" class="mem-list"></div><div class="mem-add-row"><input type="text" id="new-mem-input" placeholder="e.g. Manik is my creator and developer"><button type="button" id="add-mem-btn" class="btn-sm">+ Add</button></div></div>
+</div>
+<div class="modal-ftr"><button id="set-save" class="btn">Save</button></div>
+</div></div>
+<script type="module" src="/static/commands/commandEngine.js"></script>
+<script src="/static/app.js"></script>
+<script>
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('/sw.js', { scope: '/' })
+      .then((reg) => {
+        console.log('[SARA SW] Registered successfully with scope:', reg.scope);
+      })
+      .catch((err) => {
+        console.warn('[SARA SW] Registration failed:', err);
+      });
+  });
+}
+</script>
+</body>
+</html>
