@@ -1,5 +1,6 @@
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
+import { getProvider, AIProvider, SaraModelMode, ProviderError } from './providers';
 
 interface Env {
   AI: any;
@@ -10,6 +11,14 @@ interface Env {
   FAST_MODEL: string;
   THINKING_MODEL?: string;
   CREATOR_NAME?: string;
+  AI_PROVIDER?: string;
+  AI_FALLBACK_POLICY?: string;
+  OMNIROUTE_BASE_URL?: string;
+  OMNIROUTE_API_KEY?: string;
+  OMNIROUTE_FAST_MODEL?: string;
+  OMNIROUTE_SMART_MODEL?: string;
+  OMNIROUTE_THINKING_MODEL?: string;
+  OMNIROUTE_SUMMARIZER_MODEL?: string;
 }
 
 async function hashPassword(password: string, salt: string): Promise<string> {
@@ -584,35 +593,60 @@ async function triggerRollingSummarizer(
     }
     summarizerUserPrompt += `NEW CONVERSATION SEGMENT TO INCORPORATE:\n${formattedTranscript}\n\nPlease generate the updated consolidated summary following the five required section headers:`;
 
-    // 7. Invoke Fast model
+    // 7. Invoke Fast model via Provider Abstraction
     const summaryModel = env.FAST_MODEL || '@cf/zai-org/glm-4.7-flash';
-    const runAi = customAiRun || (env.AI && typeof env.AI.run === 'function' ? (m: string, p: any) => env.AI.run(m, p) : null);
-    if (!runAi) {
-      console.warn('[SARA Summarizer] No AI run binding available.');
-      return false;
+    let generatedText = '';
+
+    if (customAiRun) {
+      const aiRes = await customAiRun(summaryModel, {
+        messages: [
+          { role: 'system', content: SUMMARIZER_SYSTEM_PROMPT },
+          { role: 'user', content: summarizerUserPrompt }
+        ],
+        max_tokens: 1024
+      });
+      generatedText = (aiRes?.response || (typeof aiRes === 'string' ? aiRes : '') || '').trim();
+    } else {
+      try {
+        const provider = getProvider(env);
+        generatedText = await provider.complete({
+          messages: [
+            { role: 'system', content: SUMMARIZER_SYSTEM_PROMPT },
+            { role: 'user', content: summarizerUserPrompt }
+          ],
+          mode: 'fast',
+          maxTokens: 1024
+        });
+      } catch (err: any) {
+        console.warn('[SARA Summarizer] Provider completion failed:', err?.message || err);
+        return false;
+      }
     }
-
-    const aiRes = await runAi(summaryModel, {
-      messages: [
-        { role: 'system', content: SUMMARIZER_SYSTEM_PROMPT },
-        { role: 'user', content: summarizerUserPrompt }
-      ],
-      max_tokens: 1024
-    });
-
-    let generatedText = (aiRes?.response || (typeof aiRes === 'string' ? aiRes : '') || '').trim();
 
     // 8. Size control & compression retry if oversized (> 3000 chars)
     if (generatedText.length > 3000) {
       try {
-        const compressRes = await runAi(summaryModel, {
-          messages: [
-            { role: 'system', content: 'You are a concise context editor. Shorten the following structured summary to under 2,500 characters while preserving all five ### headings and critical constraints exactly.' },
-            { role: 'user', content: generatedText }
-          ],
-          max_tokens: 1024
-        });
-        const compressed = (compressRes?.response || (typeof compressRes === 'string' ? compressRes : '') || '').trim();
+        let compressed = '';
+        if (customAiRun) {
+          const compressRes = await customAiRun(summaryModel, {
+            messages: [
+              { role: 'system', content: 'You are a concise context editor. Shorten the following structured summary to under 2,500 characters while preserving all five ### headings and critical constraints exactly.' },
+              { role: 'user', content: generatedText }
+            ],
+            max_tokens: 1024
+          });
+          compressed = (compressRes?.response || (typeof compressRes === 'string' ? compressRes : '') || '').trim();
+        } else {
+          const provider = getProvider(env);
+          compressed = await provider.complete({
+            messages: [
+              { role: 'system', content: 'You are a concise context editor. Shorten the following structured summary to under 2,500 characters while preserving all five ### headings and critical constraints exactly.' },
+              { role: 'user', content: generatedText }
+            ],
+            mode: 'fast',
+            maxTokens: 1024
+          });
+        }
         if (validateSummary(compressed)) {
           generatedText = compressed;
         }
@@ -1087,13 +1121,17 @@ app.post('/api/chat', async (c) => {
 
   // Model Selection
   let selectedModel = c.env.DEFAULT_MODEL;
+  let effectiveMode: SaraModelMode = 'smart';
   if (model_mode === 'thinking') {
+    effectiveMode = 'thinking';
     selectedModel = c.env.THINKING_MODEL || '@cf/deepseek-ai/deepseek-r1-distill-qwen-32b';
   } else if (model_mode === 'fast' || use_fast === true) {
+    effectiveMode = 'fast';
     selectedModel = c.env.FAST_MODEL || '@cf/zai-org/glm-4.7-flash';
   } else if (s.model) {
     selectedModel = s.model;
   }
+  const customSessionModel = (s.model && s.model !== c.env.DEFAULT_MODEL) ? s.model : undefined;
 
   // 1. Long-Term Memory: Auto-detect explicit memory requests (User visible message only)
   const memPatterns = [
@@ -1207,53 +1245,22 @@ app.post('/api/chat', async (c) => {
           ctrl.enqueue(enc.encode(`data: ${JSON.stringify({ memory_saved: autoSavedFact })}\n\n`));
         }
 
-        const ai = await c.env.AI.run(selectedModel, { messages: msgs, stream: true, max_tokens: 3072 });
-        const reader = (ai as ReadableStream).getReader();
-        let sseBuf = '';
+        const provider = getProvider(c.env);
+        const tokenStream = await provider.streamChat({
+          messages: msgs,
+          mode: effectiveMode,
+          customModel: customSessionModel || (c.env.AI_PROVIDER === 'omniroute' ? undefined : selectedModel),
+          maxTokens: 3072,
+          signal: c.req.raw?.signal
+        });
+        const reader = tokenStream.getReader();
 
         while (true) {
           const { done, value } = await reader.read();
           if (done) break;
-          sseBuf += dec.decode(value, { stream: true });
-          const lines = sseBuf.split('\n');
-          sseBuf = lines.pop() || '';
-
-          for (const line of lines) {
-            const trimmed = line.trim();
-            if (!trimmed || !trimmed.startsWith('data:')) continue;
-            const dataStr = trimmed.slice(5).trim();
-            if (dataStr === '[DONE]') continue;
-
-            try {
-              const parsed = JSON.parse(dataStr);
-              const text = parsed.response || '';
-              if (text) {
-                full += text;
-                ctrl.enqueue(enc.encode(`data: ${JSON.stringify({ content: text })}\n\n`));
-              }
-            } catch {
-              if (dataStr) {
-                full += dataStr;
-                ctrl.enqueue(enc.encode(`data: ${JSON.stringify({ content: dataStr })}\n\n`));
-              }
-            }
-          }
-        }
-
-        if (sseBuf.trim().startsWith('data:')) {
-          const dataStr = sseBuf.trim().slice(5).trim();
-          if (dataStr && dataStr !== '[DONE]') {
-            try {
-              const parsed = JSON.parse(dataStr);
-              const text = parsed.response || '';
-              if (text) {
-                full += text;
-                ctrl.enqueue(enc.encode(`data: ${JSON.stringify({ content: text })}\n\n`));
-              }
-            } catch {
-              full += dataStr;
-              ctrl.enqueue(enc.encode(`data: ${JSON.stringify({ content: dataStr })}\n\n`));
-            }
+          if (value) {
+            full += value;
+            ctrl.enqueue(enc.encode(`data: ${JSON.stringify({ content: value })}\n\n`));
           }
         }
 
