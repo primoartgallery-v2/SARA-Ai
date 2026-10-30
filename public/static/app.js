@@ -504,7 +504,7 @@ function renderMsgs() {
   c.scrollTop = c.scrollHeight;
 }
 
-function mkMsg(role, content, img, webQuery, attachment, attachments) {
+function mkMsg(role, content, img, webQuery, attachment, attachments, docNotice) {
   const d = document.createElement("div");
   d.className = "msg " + role;
   let h = "";
@@ -512,6 +512,9 @@ function mkMsg(role, content, img, webQuery, attachment, attachments) {
     h += '<div class="msg-av">🤖</div>';
   }
   h += '<div class="msg-c">';
+  if (role === "assistant" && docNotice) {
+    h += '<div class="doc-warning-pill">📄 ' + esc(docNotice) + '</div>';
+  }
   if (role === "assistant" && webQuery) {
     h += '<div class="web-search-pill">🌐 Searched web for: <strong>"' + esc(webQuery) + '"</strong></div>';
   }
@@ -1115,6 +1118,7 @@ async function send() {
     const reader = r.body.getReader();
     const dec = new TextDecoder();
     let buf = "";
+    let currentDocNotice = "";
 
     while (true) {
       const res = await reader.read();
@@ -1131,12 +1135,18 @@ async function send() {
 
         try {
           const d = JSON.parse(jsonStr);
+          if (d.doc_notice) {
+            currentDocNotice = d.doc_notice;
+          }
           if (d.web_search) {
             currentWebQuery = d.web_search;
           }
           if (d.content) {
             full += d.content;
             let html = "";
+            if (currentDocNotice) {
+              html += '<div class="doc-warning-pill">📄 <strong>' + esc(currentDocNotice) + '</strong></div>';
+            }
             if (currentWebQuery) {
               html += '<div class="web-search-pill">🌐 Searched web for: <strong>"' + esc(currentWebQuery) + '"</strong></div>';
             }
@@ -1155,9 +1165,9 @@ async function send() {
     }
 
     if (full) {
-      msgs.push({ role: "assistant", content: full, web_query: currentWebQuery });
+      msgs.push({ role: "assistant", content: full, web_query: currentWebQuery, doc_notice: currentDocNotice });
       // Replace with clean message that includes action buttons
-      ai.replaceWith(mkMsg("assistant", full, null, currentWebQuery));
+      ai.replaceWith(mkMsg("assistant", full, null, currentWebQuery, null, null, currentDocNotice));
     }
     await loadSessions();
   } catch (e) {
